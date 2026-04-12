@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Web Scraping - MyAnimeList</title>
+    <style>
+        :root {
+            --primary: #2e51a2; /* MAL Blue */
+            --secondary: #e6e6e6;
+            --text-color: #333;
+            --bg-color: rgba(255, 255, 255, 0.95); /* Sedikit transparan agar background belakang terlihat */
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            /* Background gradien yang menarik dan keren */
+            background: linear-gradient(135deg, #a1c4fd 0%, #c2e9fb 100%);
+            background-size: cover;
+            background-attachment: fixed;
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-x: hidden;
+        }
+
+        .container {
+            background: var(--bg-color);
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+            padding: 30px;
+            max-width: 800px;
+            width: 100%;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* Chibi Sticker Bergerak */
+        .chibi-sticker {
+            position: fixed;
+            bottom: 10px;
+            right: -100px; /* Mulai dari luar layar */
+            width: 150px;
+            z-index: 20;
+            animation: walkIn 5s linear forwards, bounce 2s infinite alternate;
+            pointer-events: none; /* Agar tidak menghalangi klik */
+        }
+
+        @keyframes walkIn {
+            to { right: 20px; }
+        }
+
+        @keyframes bounce {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(-15px); }
+        }
+
+        h1 {
+            color: var(--primary);
+            text-align: center;
+            margin-top: 0;
+            font-weight: 800;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background-color: #1a3a7a;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        #statusBox {
+            background-color: var(--secondary);
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-family: monospace;
+            max-height: 150px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+        }
+
+        .status-msg { color: #555; margin: 5px 0; }
+        .error-msg { color: #d9534f; margin: 5px 0; font-weight: bold; }
+        .data-msg { color: #5cb85c; margin: 5px 0; }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        th {
+            background-color: var(--primary);
+            color: white;
+        }
+
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(0,0,0,.1);
+            border-radius: 50%;
+            border-top-color: var(--primary);
+            animation: spin 1s ease-in-out infinite;
+            display: none;
+            vertical-align: middle;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🏆 MyAnimeList Top Anime<br><small>(WebSocket Scraper)</small></h1>
+    
+    <div class="controls">
+        <button id="btnConnect">1. Hubungkan ke Server</button>
+        <button id="btnScrape" disabled>2. Start Scraping</button>
+        <button id="btnDisconnect" disabled style="background-color: #d9534f;">Putuskan</button>
+        <span class="loader" id="loader"></span>
+    </div>
+
+    <div id="statusBox">
+        <div class="status-msg">Silakan tekan "Hubungkan ke Server" untuk memulai.</div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; margin-bottom: 10px; width: 100%;">
+        <button id="btnPrev" style="background-color: #f39c12; display: none;" disabled>⬅ Previous</button>
+        <button id="btnNext" style="background-color: #27ae60; display: none;" disabled>Next ➡</button>
+    </div>
+
+    <table id="animeTable">
+        <thead>
+            <tr>
+                <th>Peringkat</th>
+                <th>Judul Anime</th>
+                <th>Skor</th>
+            </tr>
+        </thead>
+        <tbody id="animeBody">
+            <!-- Data anime akan muncul di sini secara stream -->
+        </tbody>
+    </table>
+</div>
+
+<script>
+    let ws = null;
+    let currentOffset = 0; // Mulai dari ranking 1 (offset 0)
+    
+    const btnConnect = document.getElementById('btnConnect');
+    const btnScrape = document.getElementById('btnScrape');
+    const btnDisconnect = document.getElementById('btnDisconnect');
+    const btnPrev = document.getElementById('btnPrev');
+    const btnNext = document.getElementById('btnNext');
+    const statusBox = document.getElementById('statusBox');
+    const animeBody = document.getElementById('animeBody');
+    const loader = document.getElementById('loader');
+
+    function logMessage(msg, type = "status") {
+        const div = document.createElement('div');
+        div.className = `${type}-msg`;
+        div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        statusBox.appendChild(div);
+        statusBox.scrollTop = statusBox.scrollHeight;
+    }
+
+    // Memperbarui tombol secara dinamis
+    function updateScrapeButton() {
+        btnScrape.textContent = `2. Start Scraping`;
+        btnPrev.textContent = `⬅ Previous`;
+        btnNext.textContent = `Next ➡`;
+        
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            // Evaluasi disabled state
+            btnPrev.disabled = (currentOffset === 0);
+            btnNext.disabled = false;
+        }
+    }
+
+    btnConnect.addEventListener('click', () => {
+        if(ws && ws.readyState === WebSocket.OPEN) return;
+        
+        logMessage("Mencoba menghubungkan ke ws://localhost:8765...");
+        ws = new WebSocket("ws://localhost:8765");
+
+        ws.onopen = () => {
+            logMessage("Berhasil terhubung ke WebSocket Server!", "data");
+            btnConnect.disabled = true;
+            btnScrape.disabled = false;
+            btnDisconnect.disabled = false;
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const response = JSON.parse(event.data);
+                
+                if (response.type === "status") {
+                    logMessage(response.message, "status");
+                    if(response.message.includes("Selesai") || response.message.includes("Gagal")) {
+                        loader.style.display = 'none';
+                        btnScrape.disabled = false; 
+                        
+                        // Menampilkan tombol prev/next hanya setelah selesai scraping
+                        btnPrev.style.display = 'inline-block';
+                        btnNext.style.display = 'inline-block';
+                        updateScrapeButton(); // Enable btnPrev/Next properly state
+                    }
+                } 
+                else if (response.type === "error") {
+                    logMessage(response.message, "error");
+                    loader.style.display = 'none';
+                    btnScrape.disabled = false;
+                }
+                else if (response.type === "data") {
+                    // Tambahkan baris baru ke tabel (JANGAN DIBERSIHKAN agar bisa nambah ke bawah)
+                    const row = document.createElement('tr');
+                    
+                    const cellRank = document.createElement('td');
+                    cellRank.textContent = response.data.rank;
+                    row.appendChild(cellRank);
+
+                    const cellTitle = document.createElement('td');
+                    cellTitle.textContent = response.data.title;
+                    row.appendChild(cellTitle);
+
+                    const cellScore = document.createElement('td');
+                    cellScore.innerHTML = `⭐ ${response.data.score}`;
+                    row.appendChild(cellScore);
+
+                    animeBody.appendChild(row);
+                }
+            } catch (e) {
+                logMessage("Gagal memparsing pesan dari server: " + event.data, "error");
+            }
+        };
+
+        ws.onerror = (error) => {
+            logMessage("Terjadi kesalahan pada WebSocket.", "error");
+            console.error("WebSocket Error:", error);
+            loader.style.display = 'none';
+        };
+
+        ws.onclose = () => {
+            logMessage("Koneksi WebSocket terputus.", "error");
+            btnConnect.disabled = false;
+            btnScrape.disabled = true;
+            btnDisconnect.disabled = true;
+            btnPrev.disabled = true;
+            btnNext.disabled = true;
+            loader.style.display = 'none';
+            // Kalau terputus, kita mau reset apa nggak ya? 
+            // Untuk amannya tak perlu direset (jadi bisa dilanjutin misal relogin)
+        };
+    });
+
+    btnScrape.addEventListener('click', () => {
+        if(ws && ws.readyState === WebSocket.OPEN) {
+            logMessage(`Mengirim perintah scraping untuk ranking ${currentOffset + 1} - ${currentOffset + 50}...`);
+            // MENGHAPUS list sebelumnya agar data yang baru muncul di atas
+            animeBody.innerHTML = ''; 
+            
+            ws.send("start_scraping:" + currentOffset);
+            
+            btnScrape.disabled = true;
+            btnPrev.disabled = true;
+            btnNext.disabled = true;
+            loader.style.display = 'inline-block';
+        }
+    });
+
+    btnPrev.addEventListener('click', () => {
+        if(ws && ws.readyState === WebSocket.OPEN && currentOffset >= 50) {
+            currentOffset -= 50;
+            updateScrapeButton();
+            btnScrape.click(); // Trigger scrape
+        }
+    });
+
+    btnNext.addEventListener('click', () => {
+        if(ws && ws.readyState === WebSocket.OPEN) {
+            currentOffset += 50;
+            updateScrapeButton();
+            btnScrape.click(); // Trigger scrape
+        }
+    });
+
+    btnDisconnect.addEventListener('click', () => {
+        if(ws) {
+            ws.close();
+        }
+    });
+
+</script>
+
+<!-- Animasi Chibi -->
+<img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMmdkdjZndHF1MWkwY2g3bzdwZDg0bjY4ZnhjZjEzNWwxdnFvN29lYiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/fBEMsUeGHdpsClFsxM/giphy.gif" alt="Chibi Sticker" class="chibi-sticker">
+
+</body>
+</html>
