@@ -195,7 +195,7 @@
         if (ws && ws.readyState === WebSocket.OPEN) {
             // Evaluasi disabled state
             btnPrev.disabled = (currentOffset === 0);
-            btnNext.disabled = false;
+            btnNext.disabled = (currentOffset >= 150); // Membatasi maksimal sampai 200 data
         }
     }
 

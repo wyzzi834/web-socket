@@ -86,6 +86,10 @@ if __name__ == "__main__":
     current_limit = 0
     scrapes_count = 0
     while True:
+        if current_limit >= 200:
+            print("\nBatas maksimal 200 data telah tercapai!")
+            break
+            
         pilihan = input(f"Tekan ENTER untuk scrape peringkat {current_limit+1}-{current_limit+50} (atau ketik 'keluar' untuk stop): ")
         if pilihan.lower() in ['keluar', 'exit', 'stop', 'q']:
             print("Sampai jumpa!")
