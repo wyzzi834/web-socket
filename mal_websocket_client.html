@@ -38,25 +38,7 @@
             z-index: 10;
         }
 
-        /* Chibi Sticker Bergerak */
-        .chibi-sticker {
-            position: fixed;
-            bottom: 10px;
-            right: -100px; /* Mulai dari luar layar */
-            width: 150px;
-            z-index: 20;
-            animation: walkIn 5s linear forwards, bounce 2s infinite alternate;
-            pointer-events: none; /* Agar tidak menghalangi klik */
-        }
 
-        @keyframes walkIn {
-            to { right: 20px; }
-        }
-
-        @keyframes bounce {
-            0% { transform: translateY(0); }
-            100% { transform: translateY(-15px); }
-        }
 
         h1 {
             color: var(--primary);
@@ -174,6 +156,7 @@
                 <th>Peringkat</th>
                 <th>Judul Anime</th>
                 <th>Skor</th>
+                <th>Aksi</th>
             </tr>
         </thead>
         <tbody id="animeBody">
@@ -263,8 +246,77 @@
                     row.appendChild(cellTitle);
 
                     const cellScore = document.createElement('td');
-                    cellScore.innerHTML = `⭐ ${response.data.score}`;
+                    cellScore.innerHTML = `⭐ <span>${response.data.score}</span>`;
                     row.appendChild(cellScore);
+
+                    // Tambahan Aksi Edit dan Hapus (Lokal Frontend)
+                    const cellAction = document.createElement('td');
+                    
+                    const btnEdit = document.createElement('button');
+                    btnEdit.textContent = 'Edit';
+                    btnEdit.style.backgroundColor = '#f39c12';
+                    btnEdit.style.marginRight = '5px';
+                    btnEdit.style.fontSize = '12px';
+                    btnEdit.style.padding = '5px 10px';
+                    
+                    const btnHapus = document.createElement('button');
+                    btnHapus.textContent = 'Hapus';
+                    btnHapus.style.backgroundColor = '#e74c3c';
+                    btnHapus.style.fontSize = '12px';
+                    btnHapus.style.padding = '5px 10px';
+
+                    // Logika Hapus Baris
+                    btnHapus.onclick = function() {
+                        if (confirm('Yakin ingin menghapus anime ini dari tabel?')) {
+                            row.remove();
+                        }
+                    };
+
+                    // Logika Edit Item
+                    btnEdit.onclick = function() {
+                        if (btnEdit.textContent === 'Edit') {
+                            const currentTitle = cellTitle.textContent;
+                            const scoreSpan = cellScore.querySelector('span');
+                            const currentScore = scoreSpan ? scoreSpan.textContent : cellScore.textContent.replace('⭐ ', '');
+                            
+                            // Helper function untuk menghindari broke HTML
+                            function escapeHtml(text) {
+                                return text
+                                    .replace(/&/g, "&amp;")
+                                    .replace(/</g, "&lt;")
+                                    .replace(/>/g, "&gt;")
+                                    .replace(/"/g, "&quot;")
+                                    .replace(/'/g, "&#039;");
+                            }
+                            
+                            // Beri timestamp agar ID unik untuk tiap input (jika ranking sama bisa error)
+                            const uniqueId = Date.now().toString() + Math.floor(Math.random()*100);
+                            
+                            cellTitle.innerHTML = `<input type="text" value="${escapeHtml(currentTitle)}" id="editTitle_${uniqueId}" style="width: 90%;">`;
+                            cellScore.innerHTML = `⭐ <input type="text" value="${escapeHtml(currentScore)}" id="editScore_${uniqueId}" style="width: 50px;">`;
+                            
+                            // Simpan ID agar bisa dipakai pas klik simpan
+                            btnEdit.dataset.targetId = uniqueId;
+                            
+                            btnEdit.textContent = 'Simpan';
+                            btnEdit.style.backgroundColor = '#27ae60';
+                        } else {
+                            const uniqueId = btnEdit.dataset.targetId;
+                            const newTitle = document.getElementById(`editTitle_${uniqueId}`).value;
+                            const newScore = document.getElementById(`editScore_${uniqueId}`).value;
+                            
+                            cellTitle.textContent = newTitle;
+                            cellScore.innerHTML = `⭐ <span>${newScore}</span>`;
+                            
+                            btnEdit.textContent = 'Edit';
+                            btnEdit.style.backgroundColor = '#f39c12';
+                            delete btnEdit.dataset.targetId;
+                        }
+                    };
+
+                    cellAction.appendChild(btnEdit);
+                    cellAction.appendChild(btnHapus);
+                    row.appendChild(cellAction);
 
                     animeBody.appendChild(row);
                 }
@@ -330,9 +382,6 @@
     });
 
 </script>
-
-<!-- Animasi Chibi -->
-<img src="https://media.giphy.com/media/v1.Y2lkPTc5MGI3NjExMmdkdjZndHF1MWkwY2g3bzdwZDg0bjY4ZnhjZjEzNWwxdnFvN29lYiZlcD12MV9naWZzX3NlYXJjaCZjdD1n/fBEMsUeGHdpsClFsxM/giphy.gif" alt="Chibi Sticker" class="chibi-sticker">
 
 </body>
 </html>

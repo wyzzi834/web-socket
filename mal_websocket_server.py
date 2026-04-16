@@ -2,6 +2,7 @@ import asyncio
 import websockets
 import json
 import requests
+import os
 from bs4 import BeautifulSoup
 
 # The URL to scrape
@@ -24,7 +25,23 @@ async def scrape_myanimelist(websocket, offset=0):
         anime_count = 0
         
         target_url = f"{MAL_TOP_ANIME_URL}?limit={offset}"
-        response = await loop.run_in_executor(None, lambda url=target_url: requests.get(url, headers=HEADERS))
+        
+        # Tambahkan sistem otomatis coba ulang (retry) 3 kali jika koneksi terputus
+        max_retries = 3
+        response = None
+        for attempt in range(max_retries):
+            try:
+                # Tambahkan timeout 15 detik untuk menghindari hang
+                response = await loop.run_in_executor(
+                    None, 
+                    lambda url=target_url: requests.get(url, headers=HEADERS, timeout=15)
+                )
+                break # Jika sukses, keluar dari loop retry
+            except Exception as req_err:
+                if attempt == max_retries - 1:
+                    raise req_err # Jika sudah 3 kali masih gagal, lempar errornya
+                # Tunggu 2 detik sebelum mencoba lagi ke MyAnimeList
+                await asyncio.sleep(2)
         
         if response.status_code != 200:
             await websocket.send(json.dumps({
@@ -43,6 +60,8 @@ async def scrape_myanimelist(websocket, offset=0):
             }))
             return
             
+        scraped_data = []
+        
         for row in anime_rows:
             # Peringkat bisa didapat dari elemen atau berdasar offset
             rank_el = row.select_one('.rank span')
@@ -54,20 +73,22 @@ async def scrape_myanimelist(websocket, offset=0):
             score_el = row.select_one('.score span')
             score = score_el.text.strip() if score_el else "N/A"
             
+            item_data = {
+                "rank": rank,
+                "title": title,
+                "score": score
+            }
+            scraped_data.append(item_data)
+            
             await websocket.send(json.dumps({
                 "type": "data",
-                "data": {
-                    "rank": rank,
-                    "title": title,
-                    "score": score
-                }
+                "data": item_data
             }))
             anime_count += 1
-            await asyncio.sleep(0.05) # Mengatur kecepatan aliran data
 
         await websocket.send(json.dumps({
             "type": "status",
-            "message": f"Selesai! Berhasil mengumpulkan {anime_count} anime di halaman ini."
+            "message": f"Selesai! {anime_count} anime telah berhasil ditarik."
         }))
         
     except Exception as e:
@@ -104,7 +125,7 @@ async def handler(websocket):
 async def main():
     HOST = "localhost"
     PORT = 8765
-    print(f"🚀 Memulai WebSocket Server di ws://{HOST}:{PORT}")
+    print(f"=== Memulai WebSocket Server di ws://{HOST}:{PORT} ===")
     print(f"Buka file 'mal_websocket_client.html' di browser Anda untuk mencoba!")
     async with websockets.serve(handler, HOST, PORT):
         await asyncio.Future()  # run forever
